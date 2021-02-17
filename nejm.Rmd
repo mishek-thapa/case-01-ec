@@ -1,0 +1,200 @@
+---
+title: "NEJM"
+output: pdf_document
+---
+
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(memisc)
+library(qwraps2)
+library(survival)
+```
+
+```{r}
+dig <- read_csv("dig.csv")
+options(qwraps2_markup = "markdown")
+```
+
+
+
+```{r, results='asis'}
+#code applied from: https://cran.r-project.org/web/packages/qwraps2/vignettes/summary-statistics.html
+
+#edited the n_perc0 function
+get_p <- function (x, digits = getOption("qwraps2_frmt_digits", 1), na_rm = TRUE, 
+  show_denom = "never", show_symbol = TRUE, markup = getOption("qwraps2_markup", 
+    "latex")) 
+{
+  d <- sum(!is.na(x))
+  n <- sum(x, na.rm = na_rm)
+  p <- frmt(100 * n/d, digits)
+  if (show_denom == "never") {
+    rtn <- paste0("", p)
+  }
+  if (!show_symbol) {
+    rtn <- gsub("%", "", rtn)
+  }
+  if (markup == "latex") {
+    rtn <- gsub("%", "\\\\%", rtn)
+  }
+  return(rtn)
+}
+
+
+
+
+our_summary1 <-
+  list(" " =
+         list("Age (yr) — mean ± SD"                = ~ qwraps2::mean_sd(AGE, digits = 1),
+              "Ejection fraction — mean ± SD"       = ~ qwraps2::mean_sd(EJF_PER, digits = 1),
+              "Median duration of CHF — mo" = ~ median(CHFDUR, na.rm = T, digits = 1)),
+       "% of patients" =
+         list("Female sex" = ~ get_p(SEX == 2),
+              "Nonwhite race"  = ~ get_p(RACE == 2),
+              "Age>70 yr"  = ~ get_p(AGE > 70)),
+       "Method of assessing ejection fraction:" = 
+         list( "Radionuclide ventriculography" = ~ get_p(EJFMETH == 1),
+               "Two-dimensional echocardiography" = ~ get_p(EJFMETH == 3),
+               "Contrast angiography"= ~ get_p(EJFMETH == 2)),
+       " " = list("Cardiothoracic ratio>0.55" =~ get_p(CHESTX > 0.55)),
+       "NYHA class" = list("I" =~ get_p(FUNCTCLS == 1),
+                           "II" =~ get_p(FUNCTCLS == 2),
+                           "III" =~ get_p(FUNCTCLS == 3),
+                           "IV"=~ get_p(FUNCTCLS == 4)
+                           ),
+       "No. of signs or symptoms of CHF†" = list("0" =~ get_p(NSYM == 0),
+                                                 "1" =~  get_p(NSYM == 1),
+                                                 "2" =~ get_p(NSYM == 2), 
+                                                 "3" =~ get_p(NSYM == 3),
+                                                 "4+" =~ get_p(NSYM >3)),
+       "Medical history" = list("Previous myocardial infarction" =~ get_p(PREVMI == 1),
+                                "Current angina" =~ get_p(ANGINA == 1), 
+                                "Diabetes" =~ get_p(DIABETES == 1),
+                                "Hypertension" =~ get_p(HYPERTEN == 1)),
+       " " = list("Previous digoxin use" =~ get_p(DIGUSE == 1)),
+       "Primary Cause of Ischemia" = list( "Ischemic" =~ get_p(CHFETIOL == 1),
+                                           "Nonischemic" =~ get_p(CHFETIOL != 1),
+                                           "Nonischemic: idiopathic" =~ get_p(CHFETIOL == 4),
+                                           "Nonischemic: hypertensive" =~ get_p(CHFETIOL == 2),
+                                           "Nonischemic: other" =~ get_p(CHFETIOL %in% c(3,5,6))),
+       "Concomitant medications" = list("Diuretics"  =~ get_p(DIURET == 1 | DIURETK == 1),
+                                        "Ace Inhibitors"  =~ get_p(ACEINHIB == 1),
+                                        "Nitrates"  =~ get_p(NITRATES == 1),
+                                        "Other Vasodilators"  =~ get_p(VASOD == 1)),
+       "Daily dose of study medication prescribed" = list("0.125 mg" =~ get_p(DIGDOSE == 0.125),
+                                                          "0.250 mg" =~ get_p(DIGDOSE == 0.25),
+                                                          "0.375 mg" =~ get_p(DIGDOSE == 0.375),
+                                                          "0.500 mg" =~ get_p(DIGDOSE == 0.5)))
+
+ summary_table(group_by(dig, TRTMT), our_summary1)
+```
+
+
+
+# Table 2
+
+
+
+```{r,  results='asis'}
+colnames(dig)
+
+our_summary2 <-
+  list(" " = list( "ALL" =~ n_perc0(DEATH == 1, digits = 1),
+                   "Cardiovascular" =~ n_perc0(REASON %in% c(1:4), digits =1)),
+       " " = list( "Cardiovascular: Worsening Heart Failure" =~ n_perc0(REASON == 1, na_rm = TRUE, digits = 1),
+                   "Cardiovascular: Other Cardiac" =~ n_perc0(REASON == 2, na_rm = TRUE, digits = 1),
+                   "Cardiovascular: Other Vascular" =~ n_perc0(REASON == 3, na_rm = TRUE, digits = 1),
+                   "Cardiovascular: Unknown" =~ n_perc0(REASON == 4, na_rm = TRUE, digits =1),
+                   "Noncardiac and non-vascular" =~ n_perc0(REASON == 5, na_rm = TRUE, digits =1)))
+
+tab <-  summary_table(group_by(dig, TRTMT), our_summary2)
+ 
+tab
+```
+
+
+
+
+
+#COX Results 
+
+```{r}
+#cox models
+dig <- dig %>%
+  mutate(
+    "death1" = case_when(
+    REASON == 1 ~ 1,
+    TRUE ~ 0),
+    "death2" = case_when(
+    REASON == 2 ~ 1,
+    TRUE ~ 0),
+    "death3" = case_when(
+    REASON == 3 ~ 1,
+    TRUE ~ 0),
+    "death4" = case_when(
+    REASON == 4 ~ 1,
+    TRUE ~ 0),
+    "death5" = case_when(
+    REASON == 5 ~ 1,
+    TRUE ~ 0),
+    "cardiodeath" = case_when(
+      REASON %in% c(1:4) ~ 1,
+      TRUE ~ 0  )
+    )
+
+
+surva = Surv(dig$DEATHDAY, dig$DEATH)
+
+survc = Surv(dig$DEATHDAY, dig$cardiodeath)
+
+surv1=Surv(dig$DEATHDAY, dig$death1)
+
+surv2=Surv(dig$DEATHDAY, dig$death2)
+
+surv3=Surv(dig$DEATHDAY, dig$death3)
+
+surv4=Surv(dig$DEATHDAY, dig$death4)
+
+surv5=Surv(dig$DEATHDAY, dig$death5)
+
+
+extract_p <- function(mod1){
+  HR = exp(mod1$coefficients)
+  lb = exp(confint(mod1))[1]
+  ub = exp(confint(mod1))[2]
+  p = summary(mod1)$coefficients[, 5]
+  data.frame(HR, lb, ub, p)
+}
+
+mod1 <- coxph(surv1 ~ TRTMT, data = dig)
+
+
+map_df(list(coxph(surva ~ TRTMT, data = dig),
+            coxph(survc ~ TRTMT, data = dig),
+            coxph(surv1 ~ TRTMT, data = dig),
+            coxph(surv2 ~ TRTMT, data = dig),
+            coxph(surv3 ~ TRTMT, data = dig),
+            coxph(surv4 ~ TRTMT, data = dig),
+            coxph(surv5 ~ TRTMT, data = dig)), ~extract_p(.x)) %>%
+  knitr::kable()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
