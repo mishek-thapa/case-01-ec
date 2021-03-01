@@ -1,8 +1,19 @@
 ---
 title: "NEJM"
+author: "Mishek Thapa"
 output: pdf_document
+header-includes:
+- \usepackage{booktabs}
 ---
 
+There were a few discrepancies. In table 4, there is one more patient included in the dataset than in the paper. The wilcoxin test was mentioned in the paper to get the confidence intervals for table 4's difference in percentage. However, it was not properly clarified how exactly they calculated it. Thus, there is a discrepancy in the confidence intervals for that difference in proportions. (Since the upper and lower bounds of the confidence intervals are essentially at the same value, the difference in percentage was not included).  Overall, documentation could have been improved in that part of the analysis.  
+
+
+# Table 2
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=F, message=F)
+```
 
 ```{r}
 library(tidyverse)
@@ -48,7 +59,7 @@ get_p <- function (x, digits = getOption("qwraps2_frmt_digits", 1), na_rm = TRUE
 
 
 our_summary1 <-
-  list(" " =
+  list("-" =
          list("Age (yr) — mean ± SD"                = ~ qwraps2::mean_sd(AGE, digits = 1),
               "Ejection fraction — mean ± SD"       = ~ qwraps2::mean_sd(EJF_PER, digits = 1),
               "Median duration of CHF — mo" = ~ median(CHFDUR, na.rm = T, digits = 1)),
@@ -60,7 +71,7 @@ our_summary1 <-
          list( "Radionuclide ventriculography" = ~ get_p(EJFMETH == 1),
                "Two-dimensional echocardiography" = ~ get_p(EJFMETH == 3),
                "Contrast angiography"= ~ get_p(EJFMETH == 2)),
-       " " = list("Cardiothoracic ratio>0.55" =~ get_p(CHESTX > 0.55)),
+       "-" = list("Cardiothoracic ratio>0.55" =~ get_p(CHESTX > 0.55)),
        "NYHA class" = list("I" =~ get_p(FUNCTCLS == 1),
                            "II" =~ get_p(FUNCTCLS == 2),
                            "III" =~ get_p(FUNCTCLS == 3),
@@ -75,7 +86,7 @@ our_summary1 <-
                                 "Current angina" =~ get_p(ANGINA == 1), 
                                 "Diabetes" =~ get_p(DIABETES == 1),
                                 "Hypertension" =~ get_p(HYPERTEN == 1)),
-       " " = list("Previous digoxin use" =~ get_p(DIGUSE == 1)),
+       "-" = list("Previous digoxin use" =~ get_p(DIGUSE == 1)),
        "Primary Cause of Ischemia" = list( "Ischemic" =~ get_p(CHFETIOL == 1),
                                            "Nonischemic" =~ get_p(CHFETIOL != 1),
                                            "Nonischemic: idiopathic" =~ get_p(CHFETIOL == 4),
@@ -96,16 +107,13 @@ our_summary1 <-
 
 
 # Table 2
-
-
+(Accidentally also did table 2)
 
 ```{r,  results='asis'}
-colnames(dig)
-
 our_summary2 <-
-  list(" " = list( "ALL" =~ n_perc0(DEATH == 1, digits = 1),
+  list("-" = list( "ALL" =~ n_perc0(DEATH == 1, digits = 1),
                    "Cardiovascular" =~ n_perc0(REASON %in% c(1:4), digits =1)),
-       " " = list( "Cardiovascular: Worsening Heart Failure" =~ n_perc0(REASON == 1, na_rm = TRUE, digits = 1),
+       "-" = list( "Cardiovascular: Worsening Heart Failure" =~ n_perc0(REASON == 1, na_rm = TRUE, digits = 1),
                    "Cardiovascular: Other Cardiac" =~ n_perc0(REASON == 2, na_rm = TRUE, digits = 1),
                    "Cardiovascular: Other Vascular" =~ n_perc0(REASON == 3, na_rm = TRUE, digits = 1),
                    "Cardiovascular: Unknown" =~ n_perc0(REASON == 4, na_rm = TRUE, digits =1),
@@ -116,11 +124,6 @@ tab <-  summary_table(group_by(dig, TRTMT), our_summary2)
 tab
 ```
 
-
-
-
-
-#COX Results 
 
 ```{r}
 #cox models
@@ -183,7 +186,144 @@ map_df(list(coxph(surva ~ TRTMT, data = dig),
   knitr::kable()
 ```
 
+# Table 4
 
+```{r}
+
+
+#placebo percentages
+dig_p <- dig %>%
+  mutate(EJF_i = case_when(between(EJF_PER, 25,45) ~ 1,
+                           EJF_PER<25 ~ 0),
+         CHR_i = case_when(CHESTX < 0.56 ~ 1,
+                           CHESTX > 0.55 ~ 0),
+         NYH_i = case_when(FUNCTCLS %in% c(1,2) ~ 0 ,
+                           FUNCTCLS %in% c(3,4) ~ 1 ),
+         CHF_i = case_when(CHFETIOL == 1 ~ 1,
+                           CHFETIOL != 1 ~ 0),
+         overall = 1) %>%
+  dplyr::select(EJF_i, CHR_i,CHF_i, NYH_i, DIGUSE, TRTMT, REASON, WHF, overall) %>%
+  filter(TRTMT == 0) %>%
+  pivot_longer(cols = c(EJF_i, CHR_i,CHF_i, NYH_i, DIGUSE, overall),
+               names_to = "Variable",
+               values_to = "Value") %>%
+  group_by(Variable, Value) %>%
+  summarise(n = n(),
+            val = sum(REASON == 1 | WHF == 1, na.rm = TRUE)) %>%
+  mutate(prop = round(val/n *100,1), 
+         Variable = factor(Variable, levels = c("EJF_i",  "DIGUSE","CHF_i", "CHR_i", "NYH_i", "overall"),
+                           labels = c("Ejection Frac.",
+                                      "Previous Use of Dig",
+                                      "Cause of Heart Failure",
+                                      "Cardiothor. ratio",
+                                      "NYHA Class",
+                                      "Study Population"))) %>%
+  arrange(Variable) %>%
+  filter(!is.na(Value))%>%
+  rename(n = "Placebo_Denom",
+         val = "Placebo_Nume",
+         prop = "Placebo_Prop")
+
+#treatment percentages
+dig_t <- dig %>%
+  mutate(EJF_i = case_when(between(EJF_PER, 25,45) ~ 1,
+                           EJF_PER<25 ~ 0),
+         CHR_i = case_when(CHESTX < 0.56 ~ 1,
+                           CHESTX > 0.55 ~ 0),
+         NYH_i = case_when(FUNCTCLS %in% c(1,2) ~ 0 ,
+                           FUNCTCLS %in% c(3,4) ~ 1 ),
+         CHF_i = case_when(CHFETIOL == 1 ~ 1,
+                           CHFETIOL != 1 ~ 0),
+         overall = 1) %>%
+  dplyr::select(EJF_i, CHR_i,CHF_i, NYH_i, DIGUSE, TRTMT, REASON, WHF, overall) %>%
+  filter(TRTMT == 1) %>%
+  pivot_longer(cols = c(EJF_i, CHR_i,CHF_i, NYH_i, DIGUSE, overall),
+               names_to = "Variable",
+               values_to = "Value") %>%
+  group_by(Variable, Value) %>%
+  summarise(n = n(),
+            val = sum(REASON == 1 | WHF == 1, na.rm = TRUE)) %>%
+  mutate(prop = round(val/n *100,1), 
+         Variable = factor(Variable, levels = c("EJF_i",  "DIGUSE","CHF_i", "CHR_i", "NYH_i", "overall"),
+                           labels = c("Ejection Frac.",
+                                      "Previous Use of Dig",
+                                      "Cause of Heart Failure",
+                                      "Cardiothor. ratio",
+                                      "NYHA Class",
+                                      "Study Population"))) %>%
+  arrange(Variable) %>%
+  filter(!is.na(Value)) %>%
+  rename(n = "Dig_Denom",
+         val = "Dig_Num",
+         prop = "Digoxin_Prop")
+
+joined_df <- left_join(dig_t, dig_p) 
+
+```
+
+
+```{r}
+wilcox_df <- joined_df %>%
+  pivot_longer(cols = c("Placebo_Prop", "Digoxin_Prop"),
+               names_to = "Treatment",
+               values_to = "Percentage") %>%
+  group_by(Variable, Value) %>%
+  summarise(low=wilcox.test(Percentage~Treatment, conf.int = TRUE)$conf.int[1],
+            high=wilcox.test(Percentage~Treatment,  conf.int = TRUE)$conf.int[1])
+  
+
+
+dig1 <-  dig %>% filter(between(EJF_PER, 25,45))
+surv1=Surv(dig1$DWHFDAYS, dig1$DWHF)
+
+dig2 <-  dig %>% filter(between(EJF_PER, 0,25))
+surv2=Surv(dig2$DWHFDAYS, dig2$DWHF)
+
+dig3 <-  dig %>% filter(DIGUSE==1)
+surv3=Surv(dig3$DWHFDAYS, dig3$DWHF)
+
+dig4 <-  dig %>% filter(DIGUSE==0)
+surv4=Surv(dig4$DWHFDAYS, dig4$DWHF)
+
+dig5 <-  dig %>% filter(CHFETIOL==1)
+surv5=Surv(dig5$DWHFDAYS, dig5$DWHF)
+
+dig6 <-  dig %>% filter(CHFETIOL!=1)
+surv6=Surv(dig6$DWHFDAYS, dig6$DWHF)
+
+dig7 <-  dig %>% filter(CHESTX < 0.56)
+surv7=Surv(dig7$DWHFDAYS, dig7$DWHF)
+
+dig8 <-  dig %>% filter(CHESTX > 0.55)
+surv8=Surv(dig8$DWHFDAYS, dig8$DWHF)
+
+dig9 <-  dig %>% filter(FUNCTCLS %in% c(1,2))
+surv9=Surv(dig9$DWHFDAYS, dig9$DWHF)
+
+dig10 <-  dig %>% filter(FUNCTCLS %in% c(3,4))
+surv10=Surv(dig10$DWHFDAYS, dig10$DWHF)
+
+surv11=Surv(dig$DWHFDAYS, dig$DWHF)
+
+
+joined_df  %>% dplyr::select(-Value) %>% knitr::kable(caption = "T4: Percentages")
+wilcox_df %>% dplyr::select(-Value) %>%   knitr::kable(caption = "T4: Wilcox Tests")
+
+map_df(list(coxph(surv1 ~ TRTMT, data = dig1),
+            coxph(surv2 ~ TRTMT, data = dig2),
+            coxph(surv3 ~ TRTMT, data = dig3),
+            coxph(surv4 ~ TRTMT, data = dig4),
+            coxph(surv5 ~ TRTMT, data = dig5),
+            coxph(surv6 ~ TRTMT, data = dig6),
+            coxph(surv7 ~ TRTMT, data = dig7),
+            coxph(surv8 ~ TRTMT, data = dig8),
+            coxph(surv9 ~ TRTMT, data = dig9),
+            coxph(surv10 ~ TRTMT, data = dig10),
+            coxph(surv11 ~ TRTMT, data = dig)), ~extract_p(.x)) %>%
+  knitr::kable(caption = "T4: Cox Models")
+  
+
+```
 
 
 
